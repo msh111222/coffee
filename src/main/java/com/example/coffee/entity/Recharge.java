@@ -26,6 +26,16 @@ public class Recharge {
     @Temporal(TemporalType.TIMESTAMP)
     private Date createTime;
 
+        // 微信支付相关字段
+    @Column(columnDefinition = "VARCHAR(64)")
+    private String transactionId;  // 微信支付单号
+    
+    @Column(columnDefinition = "VARCHAR(64)")
+    private String outTradeNo;  // 商户单号（商户系统内部的订单号）
+    
+    @Temporal(TemporalType.TIMESTAMP)
+    private Date payTime;  // 支付时间
+
     @Temporal(TemporalType.TIMESTAMP)
     private Date updateTime;
     
