@@ -139,6 +139,46 @@ public class UserController {
     }
 
     /**
+     * 创建充值订单
+     */
+    @PostMapping("/createRecharge")
+    public Result createRecharge(@RequestBody CreateRechargeRequest request) {
+        try {
+            if (request.getUserId() == null) {
+                return Result.error("用户ID不能为空");
+            }
+            if (request.getAmount() == null || request.getAmount() <= 0) {
+                return Result.error("充值金额必须大于0");
+            }
+
+            String outTradeNo = userService.createRecharge(request.getUserId(), request.getAmount());
+            return Result.success("创建订单成功", outTradeNo);
+        } catch(Exception e) {
+            return Result.error(e.getMessage());
+        }
+    }
+
+    /**
+     * 模拟支付成功
+     */
+    @PostMapping("/mockPaySuccess")
+    public Result mockPaySuccess(@RequestBody MockPayRequest request) {
+        try {
+            if (request.getOutTradeNo() == null || request.getOutTradeNo().isEmpty()) {
+                return Result.error("商户订单号不能为空");
+            }
+            if (request.getTransactionId() == null || request.getTransactionId().isEmpty()) {
+                return Result.error("微信支付单号不能为空");
+            }
+
+            userService.mockPaySuccess(request.getOutTradeNo(), request.getTransactionId());
+            return Result.success("支付成功");
+        } catch(Exception e) {
+            return Result.error(e.getMessage());
+        }
+    }
+
+    /**
      * 充值请求 DTO
      */
     public static class RechargeRequest {
@@ -159,6 +199,54 @@ public class UserController {
 
         public void setAmount(Integer amount) {
             this.amount = amount;
+        }
+    }
+
+    /**
+     * 创建充值订单请求 DTO
+     */
+    public static class CreateRechargeRequest {
+        private Long userId;
+        private Integer amount;
+
+        public Long getUserId() {
+            return userId;
+        }
+
+        public void setUserId(Long userId) {
+            this.userId = userId;
+        }
+
+        public Integer getAmount() {
+            return amount;
+        }
+
+        public void setAmount(Integer amount) {
+            this.amount = amount;
+        }
+    }
+
+    /**
+     * 模拟支付请求 DTO
+     */
+    public static class MockPayRequest {
+        private String outTradeNo;
+        private String transactionId;
+
+        public String getOutTradeNo() {
+            return outTradeNo;
+        }
+
+        public void setOutTradeNo(String outTradeNo) {
+            this.outTradeNo = outTradeNo;
+        }
+
+        public String getTransactionId() {
+            return transactionId;
+        }
+
+        public void setTransactionId(String transactionId) {
+            this.transactionId = transactionId;
         }
     }
 }

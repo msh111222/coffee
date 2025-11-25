@@ -9,6 +9,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestTemplate;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.util.Date;
 import java.util.Map;
@@ -178,11 +179,12 @@ public class UserService {
     }
 
     /**
-     * 充值积分
+     * 创建充值订单（只生成记录，不加积分）
      */
-    public User rechargePoints(Long userId, Integer amount) {
+    @Transactional
+    public String createRecharge(Long userId, Integer amount) {
         try {
-            System.out.println("========== 充值开始 ==========");
+            System.out.println("========== 创建充值订单开始 ==========");
             System.out.println("用户ID: " + userId);
             System.out.println("充值金额: " + amount);
 
@@ -191,35 +193,126 @@ public class UserService {
                 throw new Exception("用户不存在");
             }
 
-            // 增加积分（1元 = 1积分）
-            Integer currentPoints = user.getPoints() != null ? user.getPoints() : 0;
-            Integer newPoints = currentPoints + amount;
-            user.setPoints(newPoints);
-            user.setUpdateTime(new Date());
+            // 生成商户订单号
+            String outTradeNo = "RCH" + System.currentTimeMillis();
 
-            System.out.println("原有积分: " + currentPoints);
-            System.out.println("新增积分: " + amount);
-            System.out.println("总积分: " + newPoints);
-
-            User updatedUser = userRepository.save(user);
-            
-            // 保存充值记录
+            // 保存充值记录（状态为PENDING）
             Recharge recharge = new Recharge();
             recharge.setUserId(userId);
             recharge.setAmount(amount);
-            recharge.setStatus("success");
+            recharge.setOutTradeNo(outTradeNo);
+            recharge.setStatus("PENDING");
             rechargeRepository.save(recharge);
-            System.out.println("========== 充值记录已保存 ==========");
+            
+            System.out.println("========== 充值订单创建成功 ==========");
+            System.out.println("商户订单号: " + outTradeNo);
 
-            System.out.println("========== 充值成功 ==========");
-
-            return updatedUser;
+            return outTradeNo;
         } catch(Exception e) {
-            System.out.println("========== 充值失败 ==========");
+            System.out.println("========== 创建充值订单失败 ==========");
             System.out.println("错误信息: " + e.getMessage());
             e.printStackTrace();
-            throw new RuntimeException("充值失败: " + e.getMessage());
+            throw new RuntimeException("创建充值订单失败: " + e.getMessage());
         }
+    }
+
+    /**
+     * 模拟支付成功（根据商户订单号加积分）
+     */
+    @Transactional
+    public void mockPaySuccess(String outTradeNo, String transactionId) {
+        try {
+            System.out.println("========== 支付成功处理开始 ==========");
+            System.out.println("商户订单号: " + outTradeNo);
+            System.out.println("微信支付单号: " + transactionId);
+
+            // 查找充值记录
+            Recharge recharge = rechargeRepository.findByOutTradeNo(outTradeNo);
+            if (recharge == null) {
+                throw new Exception("充值订单不存在");
+            }
+
+            if (!"PENDING".equals(recharge.getStatus())) {
+                throw new Exception("订单状态异常，当前状态: " + recharge.getStatus());
+            }
+
+            // 查找用户
+            User user = userRepository.findById(recharge.getUserId()).orElse(null);
+            if (user == null) {
+                throw new Exception("用户不存在");
+            }
+
+            // 增加积分（1元 = 1积分）
+            Integer currentPoints = user.getPoints() != null ? user.getPoints() : 0;
+            Integer newPoints = currentPoints + recharge.getAmount();
+            user.setPoints(newPoints);
+            user.setUpdateTime(new Date());
+
+            // 更新充值记录
+            recharge.setStatus("SUCCESS");
+            recharge.setTransactionId(transactionId);
+            recharge.setPayTime(new Date());
+
+            // 保存更新
+            userRepository.save(user);
+            rechargeRepository.save(recharge);
+
+            System.out.println("原有积分: " + currentPoints);
+            System.out.println("新增积分: " + recharge.getAmount());
+            System.out.println("总积分: " + newPoints);
+            System.out.println("========== 支付成功处理完成 ==========");
+        } catch(Exception e) {
+            System.out.println("========== 支付成功处理失败 ==========");
+            System.out.println("错误信息: " + e.getMessage());
+            e.printStackTrace();
+            throw new RuntimeException("支付成功处理失败: " + e.getMessage());
+        }
+    }
+
+    /**
+     * 充值积分（保留原方法，标记为废弃）
+     */
+    @Deprecated
+    public User rechargePoints(Long userId, Integer amount) {
+       try {
+           System.out.println("========== 充值开始 ==========");
+           System.out.println("用户ID: " + userId);
+           System.out.println("充值金额: " + amount);
+
+           User user = userRepository.findById(userId).orElse(null);
+           if (user == null) {
+               throw new Exception("用户不存在");
+           }
+
+           // 增加积分（1元 = 1积分）
+           Integer currentPoints = user.getPoints() != null ? user.getPoints() : 0;
+           Integer newPoints = currentPoints + amount;
+           user.setPoints(newPoints);
+           user.setUpdateTime(new Date());
+
+           System.out.println("原有积分: " + currentPoints);
+           System.out.println("新增积分: " + amount);
+           System.out.println("总积分: " + newPoints);
+
+           User updatedUser = userRepository.save(user);
+           
+           // 保存充值记录
+           Recharge recharge = new Recharge();
+           recharge.setUserId(userId);
+           recharge.setAmount(amount);
+           recharge.setStatus("success");
+           rechargeRepository.save(recharge);
+           System.out.println("========== 充值记录已保存 ==========");
+
+           System.out.println("========== 充值成功 ==========");
+
+           return updatedUser;
+       } catch(Exception e) {
+           System.out.println("========== 充值失败 ==========");
+           System.out.println("错误信息: " + e.getMessage());
+           e.printStackTrace();
+           throw new RuntimeException("充值失败: " + e.getMessage());
+       }
     }
 
     /**
