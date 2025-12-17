@@ -217,12 +217,51 @@ public class UserService {
     }
 
     /**
-     * 模拟支付成功（根据商户订单号加积分）
+     * 处理充值支付成功的业务逻辑（加积分、更新状态）
+     * 该方法可被 mockPaySuccess、微信支付回调等多个场景复用
+     * 
+     * @param recharge 充值记录（必须为 PENDING 状态）
+     * @param transactionId 支付单号（微信支付单号或模拟单号）
+     * @throws RuntimeException 如果用户不存在或其他异常
+     */
+    private void processRechargePaid(Recharge recharge, String transactionId) {
+        // 查找用户
+        User user = userRepository.findById(recharge.getUserId()).orElse(null);
+        if (user == null) {
+            throw new RuntimeException("用户不存在");
+        }
+
+        // 增加积分（1元 = 1积分）
+        Integer currentPoints = user.getPoints() != null ? user.getPoints() : 0;
+        Integer newPoints = currentPoints + recharge.getAmount();
+        user.setPoints(newPoints);
+        user.setUpdateTime(new Date());
+
+        // 更新充值记录
+        recharge.setStatus("SUCCESS");
+        recharge.setTransactionId(transactionId);
+        recharge.setPayTime(new Date());
+
+        // 保存更新
+        userRepository.save(user);
+        rechargeRepository.save(recharge);
+
+        System.out.println("原有积分: " + currentPoints);
+        System.out.println("新增积分: " + recharge.getAmount());
+        System.out.println("总积分: " + newPoints);
+    }
+
+    /**
+     * 处理充值支付成功（对外公开方法，用于模拟支付、微信回调等场景）
+     * 
+     * @param outTradeNo 商户订单号
+     * @param transactionId 支付单号（微信支付单号或模拟单号）
+     * @throws RuntimeException 如果订单不存在或其他异常
      */
     @Transactional
-    public void mockPaySuccess(String outTradeNo, String transactionId) {
+    public void handleRechargePaid(String outTradeNo, String transactionId) {
         try {
-            System.out.println("========== 支付成功处理开始 ==========");
+            System.out.println("========== 处理充值支付 ==========");
             System.out.println("商户订单号: " + outTradeNo);
             System.out.println("微信支付单号: " + transactionId);
 
@@ -232,34 +271,37 @@ public class UserService {
                 throw new Exception("充值订单不存在");
             }
 
+            // 如果状态不是待支付，直接返回
             if (!"PENDING".equals(recharge.getStatus())) {
-                throw new Exception("订单状态异常，当前状态: " + recharge.getStatus());
+                System.out.println("订单状态异常或已处理，当前状态: " + recharge.getStatus());
+                return;
             }
 
-            // 查找用户
-            User user = userRepository.findById(recharge.getUserId()).orElse(null);
-            if (user == null) {
-                throw new Exception("用户不存在");
-            }
+            // 调用通用方法处理支付成功
+            processRechargePaid(recharge, transactionId);
 
-            // 增加积分（1元 = 1积分）
-            Integer currentPoints = user.getPoints() != null ? user.getPoints() : 0;
-            Integer newPoints = currentPoints + recharge.getAmount();
-            user.setPoints(newPoints);
-            user.setUpdateTime(new Date());
+            System.out.println("========== 处理完成 ==========");
+        } catch(Exception e) {
+            System.out.println("========== 处理失败 ==========");
+            System.out.println("错误信息: " + e.getMessage());
+            e.printStackTrace();
+            throw new RuntimeException("处理失败: " + e.getMessage());
+        }
+    }
 
-            // 更新充值记录
-            recharge.setStatus("SUCCESS");
-            recharge.setTransactionId(transactionId);
-            recharge.setPayTime(new Date());
+    /**
+     * 模拟支付成功（根据商户订单号加积分）
+     */
+    @Transactional
+    public void mockPaySuccess(String outTradeNo, String transactionId) {
+        try {
+            System.out.println("========== 支付成功处理开始 ==========");
+            System.out.println("商户订单号: " + outTradeNo);
+            System.out.println("微信支付单号: " + transactionId);
 
-            // 保存更新
-            userRepository.save(user);
-            rechargeRepository.save(recharge);
+            // 调用对外方法处理
+            handleRechargePaid(outTradeNo, transactionId);
 
-            System.out.println("原有积分: " + currentPoints);
-            System.out.println("新增积分: " + recharge.getAmount());
-            System.out.println("总积分: " + newPoints);
             System.out.println("========== 支付成功处理完成 ==========");
         } catch(Exception e) {
             System.out.println("========== 支付成功处理失败 ==========");
