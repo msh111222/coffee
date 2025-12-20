@@ -56,7 +56,7 @@
         </dependency>
         <!-- 微信支付 V3 SDK -->
         <dependency>
-            <groupId>com.wechat.pay</groupId>
+            <groupId>com.github.wechatpay-apiv3</groupId>
             <artifactId>wechatpay-apache-httpclient</artifactId>
             <version>0.4.8</version>
         </dependency>
