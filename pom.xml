@@ -54,11 +54,11 @@
             <artifactId>lombok</artifactId>
             <optional>true</optional>
         </dependency>
-        <!-- 微信支付 Java SDK (V3) - 官方依赖 -->
+        <!-- 微信支付 Apache HttpClient SDK (V3) -->
         <dependency>
-            <groupId>com.wechat.pay.java</groupId>
-            <artifactId>wechatpay-java</artifactId>
-            <version>0.2.11</version>
+            <groupId>com.github.wechatpay-apiv3</groupId>
+            <artifactId>wechatpay-apache-httpclient</artifactId>
+            <version>0.4.8</version>
         </dependency>
         <!-- JSON 处理 -->
         <dependency>

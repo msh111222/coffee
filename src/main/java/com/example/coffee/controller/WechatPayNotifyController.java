@@ -1,124 +1,123 @@
 package com.example.coffee.controller;
 
-import com.example.coffee.service.WechatPayNotifyService;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.web.bind.annotation.*;
-
+import com.example.coffee.config.WechatPayProperties;
+import com.example.coffee.service.UserService;
+import com.example.coffee.util.AesGcmUtils;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import jakarta.servlet.http.HttpServletRequest;
+import java.io.BufferedReader;
 import java.util.HashMap;
 import java.util.Map;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.web.bind.annotation.CrossOrigin;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
 
-/**
- * 微信支付回调处理 Controller
- * 
- * 处理微信支付 V3 版本的回调通知：
- * 1. 接收 Wechat-Timestamp、Wechat-Nonce、Signature 等请求头
- * 2. 接收加密的 JSON body
- * 3. 验证签名
- * 4. 解密 resource 字段
- * 5. 解析交易数据并调用业务处理
- */
 @RestController
-@RequestMapping("/api/pay/wechat")
+@RequestMapping({"/api/pay/wechat"})
 @CrossOrigin
 public class WechatPayNotifyController {
+   @Autowired
+   private UserService userService;
+   @Autowired
+   private WechatPayProperties wechatPayProperties;
+   @Autowired
+   private ObjectMapper objectMapper;
 
-    @Autowired
-    private WechatPayNotifyService wechatPayNotifyService;
+   @PostMapping({"/notify"})
+   public Map<String, String> wechatPayNotify(HttpServletRequest request) {
+      try {
+         System.out.println("========== 收到微信支付 V3 回调 ==========");
+         String wechatTimestamp = request.getHeader("Wechatpay-Timestamp");
+         String wechatNonce = request.getHeader("Wechatpay-Nonce");
+         String wechatSignature = request.getHeader("Wechatpay-Signature");
+         String wechatSerial = request.getHeader("Wechatpay-Serial");
+         System.out.println("Wechatpay-Timestamp: " + wechatTimestamp);
+         System.out.println("Wechatpay-Nonce: " + wechatNonce);
+         System.out.println("Wechatpay-Signature: " + wechatSignature);
+         System.out.println("Wechatpay-Serial: " + wechatSerial);
+         String requestBody = this.readRequestBody(request);
+         System.out.println("请求体: " + requestBody);
+         this.processNotify(requestBody);
+         Map<String, String> response = new HashMap();
+         response.put("code", "SUCCESS");
+         response.put("message", "成功");
+         return response;
+      } catch (Exception var8) {
+         System.out.println("========== 回调处理异常 ==========");
+         System.out.println("错误信息: " + var8.getMessage());
+         var8.printStackTrace();
+         Map<String, String> response = new HashMap();
+         response.put("code", "FAIL");
+         response.put("message", "处理失败");
+         return response;
+      }
+   }
 
-    /**
-     * 微信支付 V3 回调接口
-     * 
-     * 微信会 POST JSON 到此接口，包含以下请求头：
-     * - Wechat-Timestamp: 微信发送请求的时间戳
-     * - Wechat-Nonce: 微信生成的随机字符串
-     * - Signature: 微信对请求的签名（Base64 编码）
-     * 
-     * 请求体是 JSON 格式，包含以下字段：
-     * {
-     *   "id": "事件ID",
-     *   "create_time": "创建时间",
-     *   "event_type": "TRANSACTION.SUCCESS",
-     *   "resource_type": "encrypt-resource",
-     *   "resource": {
-     *     "algorithm": "AEAD_AES_256_GCM",
-     *     "ciphertext": "加密的交易数据",
-     *     "nonce": "加密用的随机字符串",
-     *     "associated_data": "附加数据"
-     *   },
-     *   "summary": "支付成功"
-     * }
-     * 
-     * @param body 微信回调的原始 JSON body
-     * @param wechatTimestamp 请求头 Wechat-Timestamp
-     * @param wechatNonce 请求头 Wechat-Nonce
-     * @param signature 请求头 Signature
-     * @return 微信要求的返回格式 { "code": "SUCCESS", "message": "成功" }
-     */
-    @PostMapping("/notify")
-    public Map<String, String> wechatPayNotify(
-            @RequestBody String body,
-            @RequestHeader("Wechat-Timestamp") String wechatTimestamp,
-            @RequestHeader("Wechat-Nonce") String wechatNonce,
-            @RequestHeader("Signature") String signature) {
-        
-        System.out.println("========== 收到微信支付 V3 回调 ==========");
+   private void processNotify(String requestBody) throws Exception {
+      System.out.println("========== 处理微信回调 ==========");
+      Map<String, Object> notifyData = (Map)this.objectMapper.readValue(requestBody, Map.class);
+      String eventType = (String)notifyData.get("event_type");
+      System.out.println("事件类型: " + eventType);
+      if (!"TRANSACTION.SUCCESS".equals(eventType)) {
+         System.out.println("不是交易成功事件，忽略处理");
+      } else {
+         Map<String, Object> resource = (Map)notifyData.get("resource");
+         String ciphertext = (String)resource.get("ciphertext");
+         String nonce = (String)resource.get("nonce");
+         String associatedData = (String)resource.get("associated_data");
+         System.out.println("开始解密 resource...");
+         String plaintext = AesGcmUtils.decrypt(this.wechatPayProperties.getApiV3Key(), ciphertext, associatedData, nonce);
+         System.out.println("解密后的数据: " + plaintext);
+         Map<String, Object> tradeData = (Map)this.objectMapper.readValue(plaintext, Map.class);
+         String outTradeNo = (String)tradeData.get("out_trade_no");
+         String transactionId = (String)tradeData.get("transaction_id");
+         String tradeState = (String)tradeData.get("trade_state");
+         System.out.println("商户订单号: " + outTradeNo);
+         System.out.println("微信支付单号: " + transactionId);
+         System.out.println("交易状态: " + tradeState);
+         if ("SUCCESS".equals(tradeState)) {
+            System.out.println("交易成功，调用业务处理...");
+            this.userService.handleRechargePaid(outTradeNo, transactionId);
+            System.out.println("业务处理完成");
+         } else if ("REFUND".equals(tradeState)) {
+            System.out.println("交易已退款，仅记录日志");
+         } else if ("CLOSED".equals(tradeState)) {
+            System.out.println("交易已关闭，仅记录日志");
+         } else {
+            System.out.println("未知的交易状态: " + tradeState);
+         }
 
-        // 使用服务层处理回调
-        boolean success = wechatPayNotifyService.handleNotify(body, wechatTimestamp, wechatNonce, signature);
+         System.out.println("========== 微信支付回调处理完成 ==========");
+      }
+   }
 
-        // 返回微信要求的成功响应
-        Map<String, String> response = new HashMap<>();
-        response.put("code", "SUCCESS");
-        response.put("message", "成功");
-        return response;
-    }
+   private String readRequestBody(HttpServletRequest request) throws Exception {
+      StringBuilder sb = new StringBuilder();
+      BufferedReader reader = request.getReader();
 
-    /**
-     * 备用的简化回调接口（用于本地测试和兼容旧版本）
-     * 
-     * 接收简化格式的 JSON：
-     * {
-     *   "out_trade_no": "RCH...",
-     *   "transaction_id": "WX..."
-     * }
-     * 
-     * 只在开发和测试环境使用，生产环境不应该依赖此接口
-     */
-    @PostMapping("/notify-simple")
-    public Map<String, String> wechatPayNotifySimple(@RequestBody Map<String, String> data) {
-        try {
-            System.out.println("========== 收到简化格式的回调 ==========");
-            System.out.println("数据: " + data);
-
-            String outTradeNo = data.get("out_trade_no");
-            String transactionId = data.get("transaction_id");
-
-            System.out.println("商户订单号: " + outTradeNo);
-            System.out.println("微信支付单号: " + transactionId);
-
-            // 两个字段都存在时处理支付
-            if (outTradeNo != null && !outTradeNo.isEmpty() &&
-                transactionId != null && !transactionId.isEmpty()) {
-                
-                System.out.println("字段完整，调用业务处理...");
-                // 注：这里直接调用 UserService 处理，不经过 WechatPayNotifyService
-                // 因为这是简化格式，没有加密和签名
-                System.out.println("========== 简化回调处理完成 ==========");
-            } else {
-                System.out.println("缺少必要字段");
+      String line;
+      try {
+         while((line = reader.readLine()) != null) {
+            sb.append(line);
+         }
+      } catch (Throwable var7) {
+         if (reader != null) {
+            try {
+               reader.close();
+            } catch (Throwable var6) {
+               var7.addSuppressed(var6);
             }
+         }
 
-        } catch (Exception e) {
-            System.out.println("========== 简化回调处理异常 ==========");
-            System.out.println("错误信息: " + e.getMessage());
-            e.printStackTrace();
-        }
+         throw var7;
+      }
 
-        // 返回微信要求的成功响应
-        Map<String, String> response = new HashMap<>();
-        response.put("code", "SUCCESS");
-        response.put("message", "成功");
-        return response;
-    }
+      if (reader != null) {
+         reader.close();
+      }
+
+      return sb.toString();
+   }
 }
-

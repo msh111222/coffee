@@ -3,228 +3,208 @@ package com.example.coffee.service;
 import com.example.coffee.config.WechatPayProperties;
 import com.example.coffee.util.SignatureUtils;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.wechat.pay.java.core.Config;
-import com.wechat.pay.java.service.payments.jsapi.JsapiServiceImpl;
-import com.wechat.pay.java.service.payments.jsapi.model.Amount;
-import com.wechat.pay.java.service.payments.jsapi.model.Payer;
-import com.wechat.pay.java.service.payments.jsapi.model.PrepayRequest;
-import com.wechat.pay.java.service.payments.jsapi.model.PrepayWithRequestPaymentResponse;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.stereotype.Service;
-
 import java.nio.charset.StandardCharsets;
 import java.security.PrivateKey;
 import java.util.HashMap;
 import java.util.Map;
+import org.apache.http.HttpEntity;
+import org.apache.http.HttpResponse;
+import org.apache.http.client.HttpClient;
+import org.apache.http.client.methods.HttpPost;
+import org.apache.http.entity.StringEntity;
+import org.apache.http.util.EntityUtils;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Service;
 
-/**
- * 微信支付服务类
- * 负责与微信支付 V3 接口交互，包括：
- * - JSAPI 统一下单
- * - 生成前端调用所需的 paySign
- */
 @Service
 public class WechatPayService {
+   @Autowired
+   private WechatPayProperties wechatPayProperties;
+   @Autowired
+   private HttpClient wechatPayHttpClient;
+   @Autowired
+   private ObjectMapper objectMapper;
+   @Autowired
+   private PrivateKey wechatPayPrivateKey;
+   @Autowired
+   private UserService userService;
+   private static final String JSAPI_PREPAY_URL = "https://api.mch.weixin.qq.com/v3/pay/transactions/jsapi";
 
-    @Autowired
-    private JsapiServiceImpl jsapiService;
+   public WechatPayService.JsapiPayResponse createRechargeAndPrepay(Long userId, Integer amount, String openId) {
+      try {
+         System.out.println("========== 创建充值订单并预下单开始 ==========");
+         System.out.println("用户ID: " + userId);
+         System.out.println("充值金额: " + amount);
+         System.out.println("用户openId: " + openId);
+         String outTradeNo = this.userService.createRecharge(userId, amount);
+         System.out.println("创建的订单号: " + outTradeNo);
+         String prepayId = this.callJsapiPrepay(outTradeNo, "账户充值", amount * 100, openId);
+         System.out.println("获取的 prepay_id: " + prepayId);
+         Map<String, String> payParams = this.generatePayParams(prepayId);
+         System.out.println("========== 创建充值订单并预下单成功 ==========");
+         return new WechatPayService.JsapiPayResponse(outTradeNo, this.wechatPayProperties.getAppId(), (String)payParams.get("timeStamp"), (String)payParams.get("nonceStr"), (String)payParams.get("package"), (String)payParams.get("signType"), (String)payParams.get("paySign"));
+      } catch (Exception var7) {
+         System.out.println("========== 创建充值订单并预下单失败 ==========");
+         System.out.println("错误信息: " + var7.getMessage());
+         var7.printStackTrace();
+         throw new RuntimeException("预下单失败: " + var7.getMessage());
+      }
+   }
 
-    @Autowired
-    private Config wechatPayCoreConfig;
+   private String callJsapiPrepay(String outTradeNo, String description, Integer amountCents, String openId) throws Exception {
+      System.out.println("========== 调用 JSAPI 统一下单接口 ==========");
+      Map<String, Object> requestBody = new HashMap();
+      requestBody.put("appid", this.wechatPayProperties.getAppId());
+      requestBody.put("mchid", this.wechatPayProperties.getMchId());
+      requestBody.put("description", description);
+      requestBody.put("out_trade_no", outTradeNo);
+      requestBody.put("notify_url", this.wechatPayProperties.getNotifyUrl());
+      Map<String, Integer> amount = new HashMap();
+      amount.put("total", amountCents);
+      requestBody.put("amount", amount);
+      Map<String, String> payer = new HashMap();
+      payer.put("openid", openId);
+      requestBody.put("payer", payer);
+      String requestBodyJson = this.objectMapper.writeValueAsString(requestBody);
+      System.out.println("请求体: " + requestBodyJson);
+      HttpPost httpPost = new HttpPost("https://api.mch.weixin.qq.com/v3/pay/transactions/jsapi");
+      httpPost.addHeader("Accept", "application/json");
+      httpPost.addHeader("Content-type", "application/json; charset=utf-8");
+      httpPost.setEntity(new StringEntity(requestBodyJson, StandardCharsets.UTF_8));
+      HttpResponse response = this.wechatPayHttpClient.execute(httpPost);
+      HttpEntity entity = response.getEntity();
+      String responseBody = EntityUtils.toString(entity, StandardCharsets.UTF_8);
+      System.out.println("响应状态码: " + response.getStatusLine().getStatusCode());
+      System.out.println("响应体: " + responseBody);
+      Map<String, Object> responseMap = (Map)this.objectMapper.readValue(responseBody, Map.class);
+      String prepayId;
+      if (response.getStatusLine().getStatusCode() != 200) {
+         prepayId = (String)responseMap.get("code");
+         String errMsg = (String)responseMap.get("message");
+         throw new Exception("统一下单失败: " + prepayId + " - " + errMsg);
+      } else {
+         prepayId = (String)responseMap.get("prepay_id");
+         if (prepayId != null && !prepayId.isEmpty()) {
+            return prepayId;
+         } else {
+            throw new Exception("响应中缺少 prepay_id");
+         }
+      }
+   }
 
-    @Autowired
-    private WechatPayProperties wechatPayProperties;
+   private Map<String, String> generatePayParams(String prepayId) throws Exception {
+      Map<String, String> params = new HashMap();
+      String timeStamp = String.valueOf(System.currentTimeMillis() / 1000L);
+      params.put("timeStamp", timeStamp);
+      String nonceStr = this.generateNonceStr();
+      params.put("nonceStr", nonceStr);
+      String packageStr = "prepay_id=" + prepayId;
+      params.put("package", packageStr);
+      params.put("signType", "RSA");
+      String paySign = this.generatePaySign(timeStamp, nonceStr, packageStr);
+      params.put("paySign", paySign);
+      System.out.println("生成的支付参数:");
+      System.out.println("  timeStamp: " + timeStamp);
+      System.out.println("  nonceStr: " + nonceStr);
+      System.out.println("  package: " + packageStr);
+      System.out.println("  signType: RSA");
+      System.out.println("  paySign: " + paySign);
+      return params;
+   }
 
-    private static final ObjectMapper objectMapper = new ObjectMapper();
+   private String generatePaySign(String timeStamp, String nonceStr, String packageStr) throws Exception {
+      String signContent = this.wechatPayProperties.getAppId() + "\n" + timeStamp + "\n" + nonceStr + "\n" + packageStr + "\n";
+      System.out.println("待签名内容: " + signContent.replace("\n", "\\n"));
+      String paySign = SignatureUtils.sign(signContent, this.wechatPayPrivateKey);
+      System.out.println("生成的 paySign: " + paySign);
+      return paySign;
+   }
 
-    /**
-     * 调用微信支付 JSAPI 统一下单接口
-     * 
-     * @param outTradeNo 商户订单号
-     * @param description 商品描述
-     * @param amount 金额（单位：分）
-     * @param openId 用户 openId
-     * @return PrepayResponse 包含前端所需的所有参数
-     */
-    public PrepayResponse prepay(String outTradeNo, String description, Integer amount, String openId) {
-        try {
-            System.out.println("========== 微信支付 JSAPI 统一下单开始 ==========");
-            System.out.println("商户订单号: " + outTradeNo);
-            System.out.println("商品描述: " + description);
-            System.out.println("金额(分): " + amount);
-            System.out.println("用户 openId: " + openId);
+   private String generateNonceStr() {
+      String characters = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
+      StringBuilder sb = new StringBuilder();
 
-            // 1. 构建请求
-            PrepayRequest request = new PrepayRequest();
-            request.setAppid(wechatPayProperties.getAppId());
-            request.setMchid(wechatPayProperties.getMchId());
-            request.setDescription(description);
-            request.setNotifyUrl(wechatPayProperties.getNotifyUrl());
-            request.setOutTradeNo(outTradeNo);
+      for(int i = 0; i < 32; ++i) {
+         int index = (int)(Math.random() * (double)characters.length());
+         sb.append(characters.charAt(index));
+      }
 
-            // 金额设置
-            Amount amountObj = new Amount();
-            amountObj.setTotal(amount);
-            request.setAmount(amountObj);
+      return sb.toString();
+   }
 
-            // 用户信息
-            Payer payer = new Payer();
-            payer.setOpenid(openId);
-            request.setPayer(payer);
+   public static class JsapiPayResponse {
+      public String outTradeNo;
+      public String appId;
+      public String timeStamp;
+      public String nonceStr;
+      public String packageVal;
+      public String signType;
+      public String paySign;
 
-            // 2. 调用微信支付接口
-            PrepayWithRequestPaymentResponse response = jsapiService.prepayWithRequestPayment(request);
-            System.out.println("微信返回的 prepay_id: " + response.getPrepayId());
+      public JsapiPayResponse(String outTradeNo, String appId, String timeStamp, String nonceStr, String packageVal, String signType, String paySign) {
+         this.outTradeNo = outTradeNo;
+         this.appId = appId;
+         this.timeStamp = timeStamp;
+         this.nonceStr = nonceStr;
+         this.packageVal = packageVal;
+         this.signType = signType;
+         this.paySign = paySign;
+      }
 
-            // 3. 生成前端调用所需的参数
-            Map<String, String> payParams = generatePayParams(
-                    response.getPrepayId(),
-                    outTradeNo
-            );
+      public String getOutTradeNo() {
+         return this.outTradeNo;
+      }
 
-            System.out.println("========== 微信支付 JSAPI 统一下单成功 ==========");
+      public void setOutTradeNo(String outTradeNo) {
+         this.outTradeNo = outTradeNo;
+      }
 
-            return new PrepayResponse(
-                    wechatPayProperties.getAppId(),
-                    outTradeNo,
-                    payParams.get("timeStamp"),
-                    payParams.get("nonceStr"),
-                    payParams.get("package"),
-                    payParams.get("signType"),
-                    payParams.get("paySign")
-            );
+      public String getAppId() {
+         return this.appId;
+      }
 
-        } catch (Exception e) {
-            System.out.println("========== 微信支付 JSAPI 统一下单失败 ==========");
-            System.out.println("错误信息: " + e.getMessage());
-            e.printStackTrace();
-            throw new RuntimeException("统一下单失败: " + e.getMessage());
-        }
-    }
+      public void setAppId(String appId) {
+         this.appId = appId;
+      }
 
-    /**
-     * 生成前端调用 wx.requestPayment 所需的参数
-     * 
-     * @param prepayId 微信返回的 prepay_id
-     * @param outTradeNo 商户订单号
-     * @return 包含 timeStamp, nonceStr, package, signType, paySign 的 Map
-     */
-    private Map<String, String> generatePayParams(String prepayId, String outTradeNo) throws Exception {
-        Map<String, String> result = new HashMap<>();
+      public String getTimeStamp() {
+         return this.timeStamp;
+      }
 
-        // 时间戳（秒级，String 格式）
-        String timeStamp = String.valueOf(System.currentTimeMillis() / 1000);
-        result.put("timeStamp", timeStamp);
+      public void setTimeStamp(String timeStamp) {
+         this.timeStamp = timeStamp;
+      }
 
-        // 随机字符串
-        String nonceStr = generateNonceStr();
-        result.put("nonceStr", nonceStr);
+      public String getNonceStr() {
+         return this.nonceStr;
+      }
 
-        // package 字段
-        String packageStr = "prepay_id=" + prepayId;
-        result.put("package", packageStr);
+      public void setNonceStr(String nonceStr) {
+         this.nonceStr = nonceStr;
+      }
 
-        // signType 固定为 RSA
-        String signType = "RSA";
-        result.put("signType", signType);
+      public String getPackageVal() {
+         return this.packageVal;
+      }
 
-        // 生成 paySign
-        String paySign = generatePaySign(
-                wechatPayProperties.getAppId(),
-                timeStamp,
-                nonceStr,
-                packageStr
-        );
-        result.put("paySign", paySign);
+      public void setPackageVal(String packageVal) {
+         this.packageVal = packageVal;
+      }
 
-        System.out.println("生成的支付参数:");
-        System.out.println("  timeStamp: " + timeStamp);
-        System.out.println("  nonceStr: " + nonceStr);
-        System.out.println("  package: " + packageStr);
-        System.out.println("  signType: " + signType);
-        System.out.println("  paySign: " + paySign);
+      public String getSignType() {
+         return this.signType;
+      }
 
-        return result;
-    }
+      public void setSignType(String signType) {
+         this.signType = signType;
+      }
 
-    /**
-     * 生成 paySign 签名
-     * 签名内容 = appid\ntimestamp\nnoncestr\nprepay_id=xxxxx\n
-     * 使用商户私钥进行 RSA-SHA256 签名
-     */
-    private String generatePaySign(String appId, String timeStamp, String nonceStr, String packageStr) throws Exception {
-        // 待签名的内容
-        String signContent = appId + "\n" + timeStamp + "\n" + nonceStr + "\n" + packageStr + "\n";
-        System.out.println("待签名内容: " + signContent.replace("\n", "\\n"));
+      public String getPaySign() {
+         return this.paySign;
+      }
 
-        // 从私钥文件读取私钥
-        PrivateKey privateKey = SignatureUtils.getPrivateKeyFromPem(wechatPayProperties.getPrivateKeyPath());
-
-        // 签名
-        String paySign = SignatureUtils.sign(signContent, privateKey);
-        System.out.println("生成的 paySign: " + paySign);
-
-        return paySign;
-    }
-
-    /**
-     * 生成随机字符串（用于 nonceStr）
-     */
-    private String generateNonceStr() {
-        String characters = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
-        StringBuilder sb = new StringBuilder();
-        for (int i = 0; i < 32; i++) {
-            int index = (int) (Math.random() * characters.length());
-            sb.append(characters.charAt(index));
-        }
-        return sb.toString();
-    }
-
-    /**
-     * 预付款响应对象
-     * 包含前端调用 wx.requestPayment 所需的所有参数
-     */
-    public static class PrepayResponse {
-        public String appId;
-        public String outTradeNo;
-        public String timeStamp;
-        public String nonceStr;
-        public String packageVal;  // "prepay_id=xxx"
-        public String signType;    // "RSA"
-        public String paySign;
-
-        public PrepayResponse(String appId, String outTradeNo, String timeStamp, 
-                            String nonceStr, String packageVal, String signType, String paySign) {
-            this.appId = appId;
-            this.outTradeNo = outTradeNo;
-            this.timeStamp = timeStamp;
-            this.nonceStr = nonceStr;
-            this.packageVal = packageVal;
-            this.signType = signType;
-            this.paySign = paySign;
-        }
-
-        // Getter/Setter
-        public String getAppId() { return appId; }
-        public void setAppId(String appId) { this.appId = appId; }
-
-        public String getOutTradeNo() { return outTradeNo; }
-        public void setOutTradeNo(String outTradeNo) { this.outTradeNo = outTradeNo; }
-
-        public String getTimeStamp() { return timeStamp; }
-        public void setTimeStamp(String timeStamp) { this.timeStamp = timeStamp; }
-
-        public String getNonceStr() { return nonceStr; }
-        public void setNonceStr(String nonceStr) { this.nonceStr = nonceStr; }
-
-        public String getPackageVal() { return packageVal; }
-        public void setPackageVal(String packageVal) { this.packageVal = packageVal; }
-
-        public String getSignType() { return signType; }
-        public void setSignType(String signType) { this.signType = signType; }
-
-        public String getPaySign() { return paySign; }
-        public void setPaySign(String paySign) { this.paySign = paySign; }
-    }
+      public void setPaySign(String paySign) {
+         this.paySign = paySign;
+      }
+   }
 }
-

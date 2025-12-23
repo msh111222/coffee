@@ -7,14 +7,12 @@ import org.springframework.web.client.RestTemplate;
 
 @SpringBootApplication
 public class CoffeeApplication {
+   public static void main(String[] args) {
+      SpringApplication.run(CoffeeApplication.class, args);
+   }
 
-    public static void main(String[] args) {
-        SpringApplication.run(CoffeeApplication.class, args);
-    }
-
-    @Bean
-    public RestTemplate restTemplate() {
-        return new RestTemplate();
-    }
-
+   @Bean
+   public RestTemplate restTemplate() {
+      return new RestTemplate();
+   }
 }
