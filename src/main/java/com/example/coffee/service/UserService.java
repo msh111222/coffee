@@ -13,7 +13,11 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.client.RestTemplate;
-
+import com.example.coffee.dto.UpdateUserProfileRequest;
+import com.example.coffee.dto.UserProfileResponse;
+import java.text.ParseException;
+import java.text.SimpleDateFormat;
+import java.util.regex.Pattern;
 @Service
 public class UserService {
    @Autowired
@@ -26,7 +30,8 @@ public class UserService {
    private String appId;
    @Value("${wechat.appSecret}")
    private String appSecret;
-
+   private static final Pattern CN_MOBILE = Pattern.compile("^1[3-9]\\d{9}$");
+   private static final SimpleDateFormat DATE_FMT = new SimpleDateFormat("yyyy-MM-dd");
    public User oneKeyLogin(String code, String nickName, String avatarUrl) {
       try {
          String openId = this.getOpenIdFromWeChat(code);
@@ -277,4 +282,60 @@ public class UserService {
          throw new RuntimeException("获取充值历史失败: " + var3.getMessage());
       }
    }
+   public UserProfileResponse getProfile(Long userId) {
+  User user = this.userRepository.findById(userId).orElse(null);
+  if (user == null) throw new RuntimeException("用户不存在");
+
+  UserProfileResponse resp = new UserProfileResponse();
+  resp.setUserId(user.getId());
+  resp.setNickname(user.getNickName());
+  resp.setPhoneNumber(user.getPhoneNumber());
+  resp.setShippingAddress(user.getShippingAddress());
+
+  if (user.getBirthday() != null) {
+    resp.setBirthday(DATE_FMT.format(user.getBirthday()));
+  } else {
+    resp.setBirthday(null);
+  }
+  return resp;
+}
+
+@Transactional
+public UserProfileResponse updateProfile(UpdateUserProfileRequest req) {
+  if (req.getUserId() == null) throw new RuntimeException("用户ID不能为空");
+
+  String nickname = req.getNickname() == null ? "" : req.getNickname().trim();
+  if (nickname.isEmpty()) throw new RuntimeException("昵称不能为空");
+  if (nickname.length() < 1 || nickname.length() > 12)
+    throw new RuntimeException("昵称长度需 1-12 字");
+
+  String phone = req.getPhoneNumber() == null ? "" : req.getPhoneNumber().trim();
+  if (!phone.isEmpty() && !CN_MOBILE.matcher(phone).matches())
+    throw new RuntimeException("手机号格式不正确");
+
+  java.util.Date birthday = null;
+  String birthdayStr = req.getBirthday() == null ? "" : req.getBirthday().trim();
+  if (!birthdayStr.isEmpty()) {
+    try {
+      birthday = DATE_FMT.parse(birthdayStr);
+    } catch (ParseException e) {
+      throw new RuntimeException("生日格式不正确，应为 yyyy-MM-dd");
+    }
+  }
+
+  User user = this.userRepository.findById(req.getUserId()).orElse(null);
+  if (user == null) throw new RuntimeException("用户不存在");
+
+  user.setNickName(nickname);
+  user.setPhoneNumber(phone.isEmpty() ? null : phone);
+  user.setBirthday(birthday);
+
+  String addr = req.getShippingAddress() == null ? null : req.getShippingAddress().trim();
+  user.setShippingAddress((addr == null || addr.isEmpty()) ? null : addr);
+
+  user.setUpdateTime(new Date());
+  this.userRepository.save(user);
+
+  return getProfile(user.getId());
+}
 }

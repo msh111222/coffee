@@ -1,5 +1,6 @@
 package com.example.coffee.entity;
 
+import com.fasterxml.jackson.annotation.JsonFormat;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.GeneratedValue;
@@ -14,28 +15,34 @@ import java.util.Date;
 import lombok.Generated;
 
 @Entity
-@Table(
-   name = "user"
-)
+@Table(name = "user")
 public class User {
    @Id
-   @GeneratedValue(
-      strategy = GenerationType.IDENTITY
-   )
+   @GeneratedValue(strategy = GenerationType.IDENTITY)
    private Long id;
-   @Column(
-      unique = true,
-      nullable = false
-   )
+
+   @Column(unique = true, nullable = false)
    private String openId;
+
    private String nickName;
    private String avatarUrl;
    private String phoneNumber;
    private String personalInfo;
    private Integer points = 0;
    private Long consumption = 0L;
+
+   // 新增：生日（仅日期）
+   @Temporal(TemporalType.DATE)
+   @JsonFormat(pattern = "yyyy-MM-dd", timezone = "GMT+8")
+   private Date birthday;
+
+   // 新增：收货地址
+   @Column(length = 512)
+   private String shippingAddress;
+
    @Temporal(TemporalType.TIMESTAMP)
    private Date createTime;
+
    @Temporal(TemporalType.TIMESTAMP)
    private Date updateTime;
 
@@ -90,6 +97,14 @@ public class User {
       return this.consumption;
    }
 
+   public Date getBirthday() {
+      return this.birthday;
+   }
+
+   public String getShippingAddress() {
+      return this.shippingAddress;
+   }
+
    @Generated
    public Date getCreateTime() {
       return this.createTime;
@@ -138,6 +153,14 @@ public class User {
    @Generated
    public void setConsumption(final Long consumption) {
       this.consumption = consumption;
+   }
+
+   public void setBirthday(final Date birthday) {
+      this.birthday = birthday;
+   }
+
+   public void setShippingAddress(final String shippingAddress) {
+      this.shippingAddress = shippingAddress;
    }
 
    @Generated
@@ -191,29 +214,29 @@ public class User {
                return false;
             }
 
-            label110: {
+            label140: {
                Object this$openId = this.getOpenId();
                Object other$openId = other.getOpenId();
                if (this$openId == null) {
                   if (other$openId == null) {
-                     break label110;
+                     break label140;
                   }
                } else if (this$openId.equals(other$openId)) {
-                  break label110;
+                  break label140;
                }
 
                return false;
             }
 
-            label103: {
+            label133: {
                Object this$nickName = this.getNickName();
                Object other$nickName = other.getNickName();
                if (this$nickName == null) {
                   if (other$nickName == null) {
-                     break label103;
+                     break label133;
                   }
                } else if (this$nickName.equals(other$nickName)) {
-                  break label103;
+                  break label133;
                }
 
                return false;
@@ -229,29 +252,57 @@ public class User {
                return false;
             }
 
-            label89: {
+            label119: {
                Object this$phoneNumber = this.getPhoneNumber();
                Object other$phoneNumber = other.getPhoneNumber();
                if (this$phoneNumber == null) {
                   if (other$phoneNumber == null) {
-                     break label89;
+                     break label119;
                   }
                } else if (this$phoneNumber.equals(other$phoneNumber)) {
-                  break label89;
+                  break label119;
                }
 
                return false;
             }
 
-            label82: {
+            label112: {
                Object this$personalInfo = this.getPersonalInfo();
                Object other$personalInfo = other.getPersonalInfo();
                if (this$personalInfo == null) {
                   if (other$personalInfo == null) {
-                     break label82;
+                     break label112;
                   }
                } else if (this$personalInfo.equals(other$personalInfo)) {
-                  break label82;
+                  break label112;
+               }
+
+               return false;
+            }
+
+            label105: {
+               Object this$birthday = this.getBirthday();
+               Object other$birthday = other.getBirthday();
+               if (this$birthday == null) {
+                  if (other$birthday == null) {
+                     break label105;
+                  }
+               } else if (this$birthday.equals(other$birthday)) {
+                  break label105;
+               }
+
+               return false;
+            }
+
+            label98: {
+               Object this$shippingAddress = this.getShippingAddress();
+               Object other$shippingAddress = other.getShippingAddress();
+               if (this$shippingAddress == null) {
+                  if (other$shippingAddress == null) {
+                     break label98;
+                  }
+               } else if (this$shippingAddress.equals(other$shippingAddress)) {
+                  break label98;
                }
 
                return false;
@@ -307,6 +358,10 @@ public class User {
       result = result * 59 + ($phoneNumber == null ? 43 : $phoneNumber.hashCode());
       Object $personalInfo = this.getPersonalInfo();
       result = result * 59 + ($personalInfo == null ? 43 : $personalInfo.hashCode());
+      Object $birthday = this.getBirthday();
+      result = result * 59 + ($birthday == null ? 43 : $birthday.hashCode());
+      Object $shippingAddress = this.getShippingAddress();
+      result = result * 59 + ($shippingAddress == null ? 43 : $shippingAddress.hashCode());
       Object $createTime = this.getCreateTime();
       result = result * 59 + ($createTime == null ? 43 : $createTime.hashCode());
       Object $updateTime = this.getUpdateTime();
@@ -317,6 +372,18 @@ public class User {
    @Generated
    public String toString() {
       Long var10000 = this.getId();
-      return "User(id=" + var10000 + ", openId=" + this.getOpenId() + ", nickName=" + this.getNickName() + ", avatarUrl=" + this.getAvatarUrl() + ", phoneNumber=" + this.getPhoneNumber() + ", personalInfo=" + this.getPersonalInfo() + ", points=" + this.getPoints() + ", consumption=" + this.getConsumption() + ", createTime=" + this.getCreateTime() + ", updateTime=" + this.getUpdateTime() + ")";
+      return "User(id=" + var10000
+         + ", openId=" + this.getOpenId()
+         + ", nickName=" + this.getNickName()
+         + ", avatarUrl=" + this.getAvatarUrl()
+         + ", phoneNumber=" + this.getPhoneNumber()
+         + ", personalInfo=" + this.getPersonalInfo()
+         + ", points=" + this.getPoints()
+         + ", consumption=" + this.getConsumption()
+         + ", birthday=" + this.getBirthday()
+         + ", shippingAddress=" + this.getShippingAddress()
+         + ", createTime=" + this.getCreateTime()
+         + ", updateTime=" + this.getUpdateTime()
+         + ")";
    }
 }

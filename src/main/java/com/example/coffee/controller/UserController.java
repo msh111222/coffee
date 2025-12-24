@@ -16,13 +16,35 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
-
+import com.example.coffee.dto.UpdateUserProfileRequest;
+import com.example.coffee.dto.UserProfileResponse;
 @RestController
 @RequestMapping({"/api/user"})
 @CrossOrigin
 public class UserController {
    @Autowired
    private UserService userService;
+
+   @GetMapping({"/profile"})
+public Result getProfile(@RequestParam("userId") Long userId) {
+  try {
+    UserProfileResponse resp = this.userService.getProfile(userId);
+    return Result.success("获取成功", resp);
+  } catch (Exception e) {
+    return Result.error(e.getMessage());
+  }
+}
+
+@PutMapping({"/profile"})
+public Result updateProfile(@RequestBody UpdateUserProfileRequest request) {
+  try {
+    UserProfileResponse resp = this.userService.updateProfile(request);
+    return Result.success("保存成功", resp);
+  } catch (Exception e) {
+    return Result.error(e.getMessage());
+  }
+}
+
 
    @PostMapping({"/oneKeyLogin"})
    public Result oneKeyLogin(@RequestBody OneKeyLoginRequest request) {
